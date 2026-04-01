@@ -32,14 +32,13 @@ print(f"输出 CSV: {OUTPUT_CSV}\n")
 
 # 调号匹配正则
 key_patterns = [
-    r'1=([A-Ga-g])',           # 1=C, 1=G
-    r'([A-G])调',              # C调, G调
-    r'(b?[A-G])$',             # 升降号结尾
+    r'1=(#?[A-Ga-g])',         # 1=C, 1=G, 1=#C, 1=bD
+    r'(#?[A-G])调',            # C调, G调, bB调, #F调
 ]
 
 
 def read_upper_region(img_path, ratio=0.4):
-    """只识别图片上部指定比例的区域，找到最大的文字块作为曲名"""
+    """只识别图片上部指定比例的区域，返回所有文字块及其位置"""
     from PIL import Image
     import numpy as np
 
@@ -55,7 +54,7 @@ def read_upper_region(img_path, ratio=0.4):
     ocr_result = reader.readtext(img_array, detail=1)
 
     if not ocr_result:
-        return []
+        return [], None
 
     # 找出面积最大的文字块（通常是曲名）
     # bbox 是四个角坐标: [(x1,y1), (x2,y1), (x2,y2), (x1,y2)]
@@ -73,7 +72,9 @@ def read_upper_region(img_path, ratio=0.4):
             'prob': prob,
             'area': area,
             'y_center': (bbox[0][1] + bbox[2][1]) / 2,
-            'x_center': (bbox[0][0] + bbox[2][0]) / 2
+            'x_center': (bbox[0][0] + bbox[2][0]) / 2,
+            'y_top': bbox[0][1],
+            'y_bottom': bbox[2][1]
         })
 
         if area > max_area:
@@ -96,25 +97,45 @@ for img_path in tqdm(image_files, desc="识别进度"):
 
     try:
         # 使用新的区域识别方法
-        texts_with_position, largest_text = read_upper_region(img_path, ratio=0.3)
+        texts_with_position, largest_text = read_upper_region(img_path, ratio=0.4)
 
         if not texts_with_position:
             raise Exception("未识别到文字")
 
-        # 1. 从所有文字中提取调号
+        # 找出最大的文字块作为曲名
+        title = largest_text
+        # 过滤掉太短的或像调号的
+        if title and (len(title) < 2 or title in ['C', 'D', 'E', 'F', 'G', 'A', 'B']):
+            title = None
+
+        # 提取调号
+        key = None
         all_text = ' '.join([t['text'] for t in texts_with_position])
+
+        # 优先匹配 1=D、1=#C 格式（带升降号）
         for pattern in key_patterns:
             match = re.search(pattern, all_text)
             if match:
                 key = match.group(1).upper()
                 break
 
-        # 2. 取最大的文字块作为曲名
-        title = largest_text
-
-        # 过滤掉太短的或像调号的
-        if title and (len(title) < 2 or title in ['C', 'D', 'E', 'F', 'G', 'A', 'B']):
-            title = None
+        # 如果没找到 1=X 格式，从曲名下方找 X调 格式
+        # 曲名下方的文字 y_center 更大
+        if not key and title:
+            title_y = None
+            for t in texts_with_position:
+                if t['text'] == title:
+                    title_y = t['y_center']
+                    break
+            if title_y:
+                # 找曲名下方的文字（y_center 比曲名大）
+                for t in texts_with_position:
+                    if t['y_center'] > title_y:
+                        # 匹配 X调 格式
+                        match = re.search(r'(#?[A-G])调', t['text'])
+                        if match:
+                            key = match.group(1).upper()
+                            break
 
         if key and title:
             new_name = f"{key}-{title}{ext}"
