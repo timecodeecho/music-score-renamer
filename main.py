@@ -228,6 +228,7 @@ for img_path in tqdm(image_files, desc="识别进度"):
         if not key:
             key = extract_key_from_corner(texts_with_position, img_width, img_height)
 
+        # 判断识别状态
         if key and title:
             new_name = f"{key}-{title}{ext}"
             new_path = os.path.join(FOLDER_PATH, new_name)
@@ -243,7 +244,14 @@ for img_path in tqdm(image_files, desc="识别进度"):
         else:
             new_name = filename
             new_path = img_path
-            status = "未识别到调号或曲名"
+            if not title and not key:
+                status = "未识别到曲名和调号"
+            elif not title:
+                status = "未识别到曲名"
+            elif not key:
+                status = "未识别到调号"
+            else:
+                status = "未知错误"
             fail_count += 1
             key = key if key else "未知"
             title = title if title else "无"
