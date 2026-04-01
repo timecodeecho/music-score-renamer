@@ -4,6 +4,7 @@
 """
 
 import os
+import sys
 import re
 import csv
 import glob
@@ -12,9 +13,19 @@ from PIL import Image
 from tqdm import tqdm
 
 # 配置
-FOLDER_PATH = r"D:\谱子\共享曲谱\0"
-FOLDER_PATH_UNIX = "D:/谱子/共享曲谱/0"
+BASE_PATH = r"D:\谱子\共享曲谱"
+# 通过命令行参数获取子文件夹，如 python main.py /0 或 python main.py /1
+if len(sys.argv) < 2:
+    print("请指定文件夹位置，例如: python main.py /0")
+    print("用法: python main.py <文件夹名称>")
+    sys.exit(1)
+
+sub_folder = "/" + sys.argv[1]
+FOLDER_PATH = BASE_PATH + sub_folder
+FOLDER_PATH_UNIX = BASE_PATH.replace('\\', '/') + sub_folder
 OUTPUT_CSV = os.path.join(FOLDER_PATH, "识别结果.csv")
+
+print(f"处理文件夹: {FOLDER_PATH}\n")
 
 # 初始化 EasyOCR（中文+英文）
 print("正在加载 OCR 模型...")
