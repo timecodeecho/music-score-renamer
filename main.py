@@ -56,11 +56,7 @@ def read_upper_region(img_path, ratio=0.4):
     if not ocr_result:
         return [], None
 
-    # 找出面积最大的文字块（通常是曲名）
-    # bbox 是四个角坐标: [(x1,y1), (x2,y1), (x2,y2), (x1,y2)]
-    max_area = 0
-    best_text = None
-
+    # 收集所有文字块
     texts_with_position = []
     for bbox, text, prob in ocr_result:
         if prob < 0.5:  # 过滤低置信度
@@ -77,9 +73,26 @@ def read_upper_region(img_path, ratio=0.4):
             'y_bottom': bbox[2][1]
         })
 
-        if area > max_area:
-            max_area = area
-            best_text = text
+    # 找出最大的非调号文字块作为曲名
+    # 排除包含"调"或数字的文字（这些是调号信息，如"C调筒音作5"）
+    def is_key_info(text):
+        """判断是否是调号信息"""
+        if '调' in text:
+            return True
+        # 检查是否包含数字
+        if re.search(r'\d', text):
+            return True
+        return False
+
+    # 按面积排序
+    texts_sorted = sorted(texts_with_position, key=lambda x: x['area'], reverse=True)
+
+    # 找到最大的非调号信息文字块
+    best_text = None
+    for t in texts_sorted:
+        if not is_key_info(t['text']):
+            best_text = t['text']
+            break
 
     return texts_with_position, best_text
 
