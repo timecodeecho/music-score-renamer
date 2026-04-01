@@ -47,6 +47,38 @@ key_patterns = [
     r'(#?[A-G])调',            # C调, G调, bB调, #F调
 ]
 
+# 调号字母（单独的单个大写字母可能是调号）
+KEY_LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
+
+
+def extract_key_from_corner(texts_with_position, width, height):
+    """从左上角区域提取调号"""
+    # 定义左上角区域（左上 20% x 20%）
+    corner_x_limit = width * 0.3
+    corner_y_limit = height * 0.3
+
+    # 找左上角的文字块
+    corner_texts = []
+    for t in texts_with_position:
+        if t['x_center'] < corner_x_limit and t['y_center'] < corner_y_limit:
+            # 优先找单个大写字母
+            if t['text'].upper() in KEY_LETTERS and len(t['text']) <= 2:
+                corner_texts.append(t)
+
+    if not corner_texts:
+        return None
+
+    # 按 y 坐标排序（越靠上越可能是调号）
+    corner_texts.sort(key=lambda x: x['y_top'])
+
+    # 返回最上面的小文字（调号通常较小，在曲名旁边）
+    for t in corner_texts:
+        if t['area'] < 5000:  # 面积较小的可能是调号
+            return t['text'].upper()
+
+    # 如果没找到小的，返回第一个
+    return corner_texts[0]['text'].upper()
+
 
 def read_upper_region(img_path, ratio=0.4):
     """只识别图片上部指定比例的区域，返回所有文字块及其位置"""
@@ -65,7 +97,7 @@ def read_upper_region(img_path, ratio=0.4):
     ocr_result = reader.readtext(img_array, detail=1)
 
     if not ocr_result:
-        return [], None
+        return [], None, width, height
 
     # 收集所有文字块
     texts_with_position = []
@@ -105,7 +137,7 @@ def read_upper_region(img_path, ratio=0.4):
             best_text = t['text']
             break
 
-    return texts_with_position, best_text
+    return texts_with_position, best_text, width, height
 
 
 # 处理结果
@@ -121,7 +153,7 @@ for img_path in tqdm(image_files, desc="识别进度"):
 
     try:
         # 使用新的区域识别方法
-        texts_with_position, largest_text = read_upper_region(img_path, ratio=0.4)
+        texts_with_position, largest_text, img_width, img_height = read_upper_region(img_path, ratio=0.4)
 
         if not texts_with_position:
             raise Exception("未识别到文字")
@@ -136,15 +168,14 @@ for img_path in tqdm(image_files, desc="识别进度"):
         key = None
         all_text = ' '.join([t['text'] for t in texts_with_position])
 
-        # 优先匹配 1=D、1=#C 格式（带升降号）
+        # 方法1: 优先匹配 1=D、1=#C 格式（带升降号）
         for pattern in key_patterns:
             match = re.search(pattern, all_text)
             if match:
                 key = match.group(1).upper()
                 break
 
-        # 如果没找到 1=X 格式，从曲名下方找 X调 格式
-        # 曲名下方的文字 y_center 更大
+        # 方法2: 如果没找到 1=X 格式，从曲名下方找 X调 格式
         if not key and title:
             title_y = None
             for t in texts_with_position:
@@ -152,14 +183,16 @@ for img_path in tqdm(image_files, desc="识别进度"):
                     title_y = t['y_center']
                     break
             if title_y:
-                # 找曲名下方的文字（y_center 比曲名大）
                 for t in texts_with_position:
                     if t['y_center'] > title_y:
-                        # 匹配 X调 格式
                         match = re.search(r'(#?[A-G])调', t['text'])
                         if match:
                             key = match.group(1).upper()
                             break
+
+        # 方法3: 从左上角区域找调号字母
+        if not key:
+            key = extract_key_from_corner(texts_with_position, img_width, img_height)
 
         if key and title:
             new_name = f"{key}-{title}{ext}"
