@@ -1,6 +1,6 @@
 """
 曲谱图片批量重命名工具
-使用 EasyOCR 识别曲谱图片中的调号和曲名
+使用 EasyOCR 识别曲名 + Tesseract 识别调号
 """
 
 import os
@@ -9,8 +9,12 @@ import re
 import csv
 import glob
 import easyocr
+import pytesseract
 from PIL import Image
 from tqdm import tqdm
+
+# 配置 Tesseract 路径
+pytesseract.pytesseract.tesseract_cmd = r'D:\app\ai\Tesseract-OCR\tesseract.exe'
 
 # 配置
 BASE_PATH = r"D:\谱子\共享曲谱"
@@ -49,6 +53,32 @@ key_patterns = [
 
 # 调号字母（单独的单个大写字母可能是调号）
 KEY_LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
+
+
+def extract_key_with_tesseract(img_path):
+    """用 Tesseract 识别左上角调号字母"""
+    img = Image.open(img_path)
+    width, height = img.size
+
+    # 裁剪左上角区域（30% x 30%）
+    corner = img.crop((0, 0, int(width * 0.3), int(height * 0.3)))
+
+    # 使用 Tesseract 识别
+    text = pytesseract.image_to_string(corner, config='--psm 6')
+    text = text.upper()
+
+    # 提取单个大写字母（C/D/E/F/G/A/B）
+    # 优先找完整的调号格式如 1=C, 1=G
+    match = re.search(r'1=([CDEFGAB])', text)
+    if match:
+        return match.group(1)
+
+    # 找单独的调号字母
+    match = re.search(r'([CDEFGAB])\s*$', text, re.MULTILINE)
+    if match:
+        return match.group(1)
+
+    return None
 
 
 def extract_key_from_corner(texts_with_position, width, height):
@@ -175,7 +205,11 @@ for img_path in tqdm(image_files, desc="识别进度"):
                 key = match.group(1).upper()
                 break
 
-        # 方法2: 如果没找到 1=X 格式，从曲名下方找 X调 格式
+        # 方法2: Tesseract 识别左上角英文字母调号
+        if not key:
+            key = extract_key_with_tesseract(img_path)
+
+        # 方法3: 如果没找到 1=X 格式，从曲名下方找 X调 格式
         if not key and title:
             title_y = None
             for t in texts_with_position:
