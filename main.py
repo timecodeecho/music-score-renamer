@@ -55,59 +55,85 @@ key_patterns = [
 KEY_LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
 
 
-def extract_key_with_tesseract(img_path):
-    """用 Tesseract 识别左上角调号字母"""
+def extract_key_with_tesseract(img_path, region='corner'):
+    """用 Tesseract 识别调号，支持多个区域
+
+    region 参数:
+    - 'corner': 左上角 30% 区域，匹配 1=C, 1=G, #C, bD 等格式
+    - 'below_title': 曲名下方区域，匹配 C调, D调, bB调 等格式
+    - 'upper': 整个上部 40% 区域，作为备选
+    """
     img = Image.open(img_path)
     width, height = img.size
 
-    # 裁剪左上角区域（30% x 30%）
-    corner = img.crop((0, 0, int(width * 0.3), int(height * 0.3)))
+    if region == 'corner':
+        # 裁剪左上角区域（30% x 30%）
+        cropped = img.crop((0, 0, int(width * 0.3), int(height * 0.3)))
+    elif region == 'upper':
+        # 裁剪整个上部区域（40%）
+        cropped = img.crop((0, 0, width, int(height * 0.4)))
+    elif region == 'below_title':
+        # 曲名下方区域，需要 title_y 参数
+        cropped = None  # 下面单独处理
 
-    # 使用 Tesseract 识别
-    text = pytesseract.image_to_string(corner, config='--psm 6')
-    text = text.upper()
+    if cropped is not None:
+        # 使用 Tesseract 识别
+        text = pytesseract.image_to_string(cropped, config='--psm 6')
+        text = text.upper()
 
-    # 提取单个大写字母（C/D/E/F/G/A/B）
-    # 优先找完整的调号格式如 1=C, 1=G
-    match = re.search(r'1=([CDEFGAB])', text)
-    if match:
-        return match.group(1)
+        # 优先匹配完整的调号格式如 1=C, 1=G
+        match = re.search(r'1=([CDEFGAB])', text)
+        if match:
+            return match.group(1)
 
-    # 找单独的调号字母
-    match = re.search(r'([CDEFGAB])\s*$', text, re.MULTILINE)
-    if match:
-        return match.group(1)
+        # 匹配带升降号的格式
+        match = re.search(r'1=(#?[CDEFGAB])', text)
+        if match:
+            return match.group(1)
+
+        # 匹配 X调 格式
+        match = re.search(r'(#?[A-G])调', text)
+        if match:
+            return match.group(1)
+
+        # 单独大写字母
+        match = re.search(r'\b([CDEFGAB])\b', text)
+        if match:
+            return match.group(1)
 
     return None
 
 
-def extract_key_from_corner(texts_with_position, width, height):
-    """从左上角区域提取调号"""
-    # 定义左上角区域（左上 20% x 20%）
-    corner_x_limit = width * 0.3
-    corner_y_limit = height * 0.3
+def extract_key_from_title_region(img_path, title_y_center):
+    """Tesseract 识别曲名下方区域"""
+    img = Image.open(img_path)
+    width, height = img.size
 
-    # 找左上角的文字块
-    corner_texts = []
-    for t in texts_with_position:
-        if t['x_center'] < corner_x_limit and t['y_center'] < corner_y_limit:
-            # 优先找单个大写字母
-            if t['text'].upper() in KEY_LETTERS and len(t['text']) <= 2:
-                corner_texts.append(t)
-
-    if not corner_texts:
+    # 裁剪曲名下方区域（从 title_y 向下 30% 区域）
+    y_start = int(title_y_center)
+    y_end = int(height * 0.6)
+    if y_end > height:
+        y_end = height
+    if y_start >= y_end:
         return None
 
-    # 按 y 坐标排序（越靠上越可能是调号）
-    corner_texts.sort(key=lambda x: x['y_top'])
+    cropped = img.crop((0, y_start, width, y_end))
 
-    # 返回最上面的小文字（调号通常较小，在曲名旁边）
-    for t in corner_texts:
-        if t['area'] < 5000:  # 面积较小的可能是调号
-            return t['text'].upper()
+    # 使用 Tesseract 识别
+    text = pytesseract.image_to_string(cropped, config='--psm 6')
+    text = text.upper()
 
-    # 如果没找到小的，返回第一个
-    return corner_texts[0]['text'].upper()
+    # 匹配 X调 格式
+    match = re.search(r'(#?[A-G])调', text)
+    if match:
+        return match.group(1)
+
+    # 匹配单独的调号字母
+    match = re.search(r'(#?[A-G])\b', text)
+    if match:
+        return match.group(1)
+
+    return None
 
 
 def read_upper_region(img_path, ratio=0.4):
@@ -207,9 +233,9 @@ for img_path in tqdm(image_files, desc="识别进度"):
 
         # 方法2: Tesseract 识别左上角英文字母调号
         if not key:
-            key = extract_key_with_tesseract(img_path)
+            key = extract_key_with_tesseract(img_path, region='corner')
 
-        # 方法3: 如果没找到 1=X 格式，从曲名下方找 X调 格式
+        # 方法3: 用 Tesseract 识别曲名下方区域的调号
         if not key and title:
             title_y = None
             for t in texts_with_position:
@@ -217,16 +243,11 @@ for img_path in tqdm(image_files, desc="识别进度"):
                     title_y = t['y_center']
                     break
             if title_y:
-                for t in texts_with_position:
-                    if t['y_center'] > title_y:
-                        match = re.search(r'(#?[A-G])调', t['text'])
-                        if match:
-                            key = match.group(1).upper()
-                            break
+                key = extract_key_from_title_region(img_path, title_y)
 
-        # 方法3: 从左上角区域找调号字母
+        # 方法4: Tesseract 识别整个上部区域（备选）
         if not key:
-            key = extract_key_from_corner(texts_with_position, img_width, img_height)
+            key = extract_key_with_tesseract(img_path, region='upper')
 
         # 判断识别状态
         if key and title:

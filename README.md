@@ -1,40 +1,49 @@
 # 曲谱图片批量重命名工具
 
-使用 EasyOCR 识别曲谱图片中的调号和曲名，批量重命名文件。
+使用 EasyOCR 识别曲谱图片中的曲名，Tesseract 识别调号，批量重命名文件。
 
 ## 功能特点
 
 - **智能区域识别**：只识别图片上部 40% 区域（曲名和调号通常在此区域）
 - **最大文字块识别**：自动识别面积最大的文字块作为曲名（通常曲名字号最大）
-- **调号识别**：支持 `1=C`、`C调` 等多种格式
+- **调号识别（Tesseract）**：
+  - 左上角区域识别（30% x 30%）：匹配 `1=C`、`1=G`、`#C`、`bD` 等格式
+  - 曲名下方区域识别：匹配 `C调`、`D调`、`bB调` 等格式
+  - 整个上部区域识别（备选）
 
 ## 环境要求
 
 - Python 3.8+
 - easyocr
+- pytesseract
 - opencv-python
 - pillow
 - tqdm
+- Tesseract OCR（需安装并配置路径）
 
 ## 安装依赖
 
 ```bash
-pip install easyocr opencv-python pillow tqdm
+pip install easyocr pytesseract opencv-python pillow tqdm
+```
+
+## Tesseract 配置
+
+下载并安装 [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki)，然后在 `main.py` 中配置路径：
+
+```python
+pytesseract.pytesseract.tesseract_cmd = r'你的Tesseract路径\tesseract.exe'
 ```
 
 ## 使用方法
 
-修改 `main.py` 中的配置：
-
-```python
-FOLDER_PATH = r"你的曲谱文件夹路径"
-```
-
 运行：
 
 ```bash
-python main.py
+python main.py <文件夹编号>
 ```
+
+例如：`python main.py 0` 处理共享曲谱文件夹中的第 0 个子文件夹。
 
 ## 输出
 
