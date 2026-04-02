@@ -63,6 +63,9 @@ key_patterns = [
 # 调号字母（单独的单个大写字母可能是调号）
 KEY_LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
 
+# Tesseract 配置
+TESSERACT_CONFIG = '--psm 6'
+
 
 def extract_key_with_tesseract(img_path, region='corner'):
     """用 Tesseract 识别调号，支持多个区域
@@ -93,7 +96,7 @@ def extract_key_with_tesseract(img_path, region='corner'):
 
     if cropped is not None:
         # 使用 Tesseract 识别
-        text = pytesseract.image_to_string(cropped, config='--psm 6')
+        text = pytesseract.image_to_string(cropped, config=TESSERACT_CONFIG)
         text = text.upper()
 
         # 优先匹配完整的调号格式如 1=C, 1=G
@@ -119,51 +122,6 @@ def extract_key_with_tesseract(img_path, region='corner'):
     return None
 
 
-def check_key_prefix(img_path, key_y_center, key_x_right):
-    """检查调号字母左侧是否有 # 或 b
-
-    Args:
-        img_path: 图片路径
-        key_y_center: 调号字母的垂直中心位置
-        key_x_right: 调号字母的右侧 x 坐标
-
-    Returns:
-        带升降号的调号，如 #C, bD，或 None
-    """
-    img = Image.open(img_path)
-    width, height = img.size
-
-    # 裁剪调号字母左侧区域（宽度为调号字母宽度的 2 倍）
-    left_width = int((key_x_right) * 0.5) if key_x_right > 0 else int(width * 0.1)
-    if left_width <= 0:
-        left_width = int(width * 0.1)
-
-    # 裁剪左侧区域（高度范围与调号字母相同）
-    half_height = int(height * 0.05)
-    y_top = max(0, int(key_y_center) - half_height)
-    y_bottom = min(height, int(key_y_center) + half_height)
-
-    left_region = img.crop((0, y_top, left_width, y_bottom))
-
-    # 识别左侧内容
-    text = pytesseract.image_to_string(left_region, config='--psm 6')
-    text = text.strip().upper()
-
-    # 检查是否有 # 或 b
-    if '#' in text:
-        return '#'
-    elif 'B' in text:
-        # 可能是 b，需要更精确判断 - 检查是否是降号符号
-        # 降号 b 通常比较小且单独出现
-        if re.search(r'^B$|^B\s', text) or re.search(r'\sB$|\sB\s', text):
-            return 'b'
-        # 如果是 B 调中的 B，不是降号
-        if '调' in text:
-            return None
-
-    return None
-
-
 def check_key_prefix_by_tesseract(img_path, key_bbox, img_width, img_height):
     """使用 Tesseract 检查调号前方是否有升降号
 
@@ -176,7 +134,7 @@ def check_key_prefix_by_tesseract(img_path, key_bbox, img_width, img_height):
         img_height: 图片高度
 
     Returns:
-        '#' 或 'b' 或 None
+        ('#' 或 'b' 或 None, 识别到的文本)
     """
     x1, y1, x2, y2 = key_bbox
     key_width = x2 - x1
@@ -189,24 +147,19 @@ def check_key_prefix_by_tesseract(img_path, key_bbox, img_width, img_height):
     bottom = y2 + key_height // 2  # 向下扩展 key_height 的高度
 
     if right <= left or bottom <= top:
-        return None
+        return None, ""
 
     img = Image.open(img_path)
     # 裁剪调号前方的区域
     prefix_region = img.crop((left, top, right, bottom))
 
     # 用 Tesseract 识别
-    text = pytesseract.image_to_string(prefix_region, config='--psm 6')
+    text = pytesseract.image_to_string(prefix_region, config=TESSERACT_CONFIG)
     text = text.strip()
-
-    print(f"  [升降号检测] 区域({left},{top},{right},{bottom}): '{text}'")
-
-    text_upper = text.upper()
-    text_lower = text.lower()
 
     # 检查升号：#, ♯, 井
     if '#' in text or '♯' in text or '井' in text:
-        return '#'
+        return '#', text
 
     # 检查降号：b, B, 6, 0, ♭, ь
     flat_chars = ['b', 'B', '6', '0', '♭', 'ь']
@@ -214,9 +167,9 @@ def check_key_prefix_by_tesseract(img_path, key_bbox, img_width, img_height):
         if c in text:
             # 排除包含"调"的词（如"B调"）
             if '调' not in text:
-                return 'b'
+                return 'b', text
 
-    return None
+    return None, text
 
 
 def extract_key_from_title_region(img_path, title_y_center):
@@ -235,7 +188,7 @@ def extract_key_from_title_region(img_path, title_y_center):
     cropped = img.crop((0, y_start, width, y_end))
 
     # 使用 Tesseract 识别
-    text = pytesseract.image_to_string(cropped, config='--psm 6')
+    text = pytesseract.image_to_string(cropped, config=TESSERACT_CONFIG)
     text = text.upper()
 
     # 匹配 X调 格式
@@ -340,6 +293,7 @@ for img_path in tqdm(image_files, desc="识别进度"):
         # 提取调号
         key = None
         key_method = None  # 记录调号识别方法
+        key_prefix_text = ""  # 记录升降号检测的识别文本
         all_text = ' '.join([t['text'] for t in texts_with_position])
 
         # 方法1: 优先匹配 1=D、1=#C 格式（带升降号）
@@ -356,16 +310,21 @@ for img_path in tqdm(image_files, desc="识别进度"):
             if key:
                 key_method = "Tesseract左上角"
 
-        # 方法2.5: 如果识别到调号，检查左侧是否有升降号
-        if key and key in KEY_LETTERS:
+        # 方法2.5: 无论是否已有升降号，都搜索左上角区域检测升降号
+        if key:
             # 用 EasyOCR 查找调号字母的位置
             for t in texts_with_position:
-                if t['text'].upper() == key:
+                if t['text'].upper() == key or (len(key) == 1 and t['text'].upper() == key):
                     # 用 Tesseract 检查前方是否有 # 或 b
                     key_bbox = (t['x_left'], t['y_top'], t['x_right'], t['y_bottom'])
-                    prefix = check_key_prefix_by_tesseract(img_path, key_bbox, img_width, img_height)
-                    if prefix:
+                    prefix, prefix_text = check_key_prefix_by_tesseract(img_path, key_bbox, img_width, img_height)
+                    key_prefix_text = prefix_text  # 保存升降号检测结果
+                    if prefix and len(key) == 1:
+                        # 原本是纯字母，加上升降号
                         key = prefix + key
+                        key_method = "Tesseract前方升降号"
+                    elif prefix:
+                        # 原本已有升降号
                         key_method = "Tesseract前方升降号"
                     break
 
@@ -446,6 +405,7 @@ for img_path in tqdm(image_files, desc="识别进度"):
         "原文件名": filename,
         "调号": key if key else "未知",
         "调号识别方法": key_method if key_method else "无",
+        "升降号检测文本": key_prefix_text if key_prefix_text else "无",
         "曲名": title if title else "无",
         "新文件名": new_name,
         "状态": status
@@ -453,7 +413,7 @@ for img_path in tqdm(image_files, desc="识别进度"):
 
 # 写入 CSV
 with open(OUTPUT_CSV, 'w', newline='', encoding='utf-8-sig') as f:
-    writer = csv.DictWriter(f, fieldnames=["原文件名", "调号", "调号识别方法", "曲名", "新文件名", "状态"])
+    writer = csv.DictWriter(f, fieldnames=["原文件名", "调号", "调号识别方法", "升降号检测文本", "曲名", "新文件名", "状态"])
     writer.writeheader()
     writer.writerows(results)
 
