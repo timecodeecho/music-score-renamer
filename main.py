@@ -339,6 +339,7 @@ for img_path in tqdm(image_files, desc="识别进度"):
 
         # 提取调号
         key = None
+        key_method = None  # 记录调号识别方法
         all_text = ' '.join([t['text'] for t in texts_with_position])
 
         # 方法1: 优先匹配 1=D、1=#C 格式（带升降号）
@@ -346,11 +347,14 @@ for img_path in tqdm(image_files, desc="识别进度"):
             match = re.search(pattern, all_text)
             if match:
                 key = match.group(1).upper()
+                key_method = "EasyOCR文本匹配"
                 break
 
         # 方法2: Tesseract 识别左上角英文字母调号
         if not key:
             key = extract_key_with_tesseract(img_path, region='corner')
+            if key:
+                key_method = "Tesseract左上角"
 
         # 方法2.5: 如果识别到调号，检查左侧是否有升降号
         if key and key in KEY_LETTERS:
@@ -362,6 +366,7 @@ for img_path in tqdm(image_files, desc="识别进度"):
                     prefix = check_key_prefix_by_tesseract(img_path, key_bbox, img_width, img_height)
                     if prefix:
                         key = prefix + key
+                        key_method = "Tesseract前方升降号"
                     break
 
         # 方法3: 用 Tesseract 识别曲名下方区域的调号
@@ -373,10 +378,14 @@ for img_path in tqdm(image_files, desc="识别进度"):
                     break
             if title_y:
                 key = extract_key_from_title_region(img_path, title_y)
+                if key:
+                    key_method = "Tesseract曲名下方"
 
         # 方法4: Tesseract 识别整个上部区域（备选）
         if not key:
             key = extract_key_with_tesseract(img_path, region='upper')
+            if key:
+                key_method = "Tesseract上部全区域"
 
         # 判断识别状态
         if key and title:
@@ -436,6 +445,7 @@ for img_path in tqdm(image_files, desc="识别进度"):
     results.append({
         "原文件名": filename,
         "调号": key if key else "未知",
+        "调号识别方法": key_method if key_method else "无",
         "曲名": title if title else "无",
         "新文件名": new_name,
         "状态": status
@@ -443,7 +453,7 @@ for img_path in tqdm(image_files, desc="识别进度"):
 
 # 写入 CSV
 with open(OUTPUT_CSV, 'w', newline='', encoding='utf-8-sig') as f:
-    writer = csv.DictWriter(f, fieldnames=["原文件名", "调号", "曲名", "新文件名", "状态"])
+    writer = csv.DictWriter(f, fieldnames=["原文件名", "调号", "调号识别方法", "曲名", "新文件名", "状态"])
     writer.writeheader()
     writer.writerows(results)
 
