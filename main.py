@@ -36,13 +36,17 @@ print("正在加载 OCR 模型...")
 reader = easyocr.Reader(['ch_sim', 'en'], gpu=True, verbose=False)
 print("模型加载完成\n")
 
-# 获取所有 IMG 开头的图片文件
+# 获取所有图片文件（排除已重命名的如 C-曲名.jpg）
 os.chdir(FOLDER_PATH_UNIX)
 image_extensions = ['.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG']
-all_files = glob.glob("IMG_*")
-image_files = [f for f in all_files if os.path.splitext(f)[1].lower() in image_extensions]
+all_files = glob.glob("*")
+# 过滤：只处理图片文件，且不是以调号开头的文件（排除已完整重命名的如 C-曲名.jpg）
+# 曲名.jpg 文件仍包含进去，后续可能修复调号
+image_files = [f for f in all_files
+               if os.path.splitext(f)[1].lower() in image_extensions
+               and not re.match(r'^[#b]?[CDEFGAB]-', f)]
 
-print(f"找到 {len(image_files)} 个 IMG 开头的图片文件")
+print(f"找到 {len(image_files)} 个需要处理的图片文件")
 print(f"输出 CSV: {OUTPUT_CSV}\n")
 
 # 调号匹配正则
@@ -181,6 +185,9 @@ def read_upper_region(img_path, ratio=0.4):
         # 检查是否包含数字
         if re.search(r'\d', text):
             return True
+        # 排除制谱、编曲、作曲等信息
+        if any(kw in text for kw in ['制谱', '编曲', '作曲', '记谱', '演奏']):
+            return True
         return False
 
     # 按 y 坐标排序（越靠上越可能是曲名）
@@ -251,6 +258,7 @@ for img_path in tqdm(image_files, desc="识别进度"):
 
         # 判断识别状态
         if key and title:
+            # 调号和曲名都识别到
             new_name = f"{key}-{title}{ext}"
             new_path = os.path.join(FOLDER_PATH, new_name)
 
@@ -261,6 +269,24 @@ for img_path in tqdm(image_files, desc="识别进度"):
 
             os.rename(img_path, new_path)
             status = "成功"
+            success_count += 1
+        elif title and not key:
+            # 只识别到曲名，没有调号
+            new_name = f"{title}{ext}"
+            new_path = os.path.join(FOLDER_PATH, new_name)
+
+            # 如果新文件名和原文件名相同，跳过重命名
+            if new_name == filename:
+                new_path = img_path
+                status = "已存在"
+            else:
+                # 检查是否重名
+                if os.path.exists(new_path):
+                    new_name = f"{title}_{filename}{ext}"
+                    new_path = os.path.join(FOLDER_PATH, new_name)
+
+                os.rename(img_path, new_path)
+                status = "成功（无调号）"
             success_count += 1
         else:
             new_name = filename
