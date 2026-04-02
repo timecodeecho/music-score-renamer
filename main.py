@@ -67,6 +67,7 @@ def extract_key_with_tesseract(img_path, region='corner'):
     - 'corner': 左上角 30% 区域，匹配 1=C, 1=G, #C, bD 等格式
     - 'below_title': 曲名下方区域，匹配 C调, D调, bB调 等格式
     - 'upper': 整个上部 40% 区域，作为备选
+    - 'check_left': 检查调号字母左侧是否有升降号
     """
     img = Image.open(img_path)
     width, height = img.size
@@ -80,6 +81,11 @@ def extract_key_with_tesseract(img_path, region='corner'):
     elif region == 'below_title':
         # 曲名下方区域，需要 title_y 参数
         cropped = None  # 下面单独处理
+    elif region == 'check_left':
+        # 左侧区域，在主循环中调用，需要 img 和 y_center 参数
+        cropped = None
+    else:
+        cropped = None
 
     if cropped is not None:
         # 使用 Tesseract 识别
@@ -91,7 +97,7 @@ def extract_key_with_tesseract(img_path, region='corner'):
         if match:
             return match.group(1)
 
-        # 匹配带升降号的格式
+        # 匹配带升降号的格式 1=#C, 1=bD
         match = re.search(r'1=(#?[CDEFGAB])', text)
         if match:
             return match.group(1)
@@ -101,10 +107,88 @@ def extract_key_with_tesseract(img_path, region='corner'):
         if match:
             return match.group(1)
 
-        # 单独大写字母
-        match = re.search(r'\b([CDEFGAB])\b', text)
+        # 单独大写字母：需要检查左侧
+        match = re.search(r'(#?[CDEFGAB])\b', text)
         if match:
             return match.group(1)
+
+    return None
+
+
+def check_key_prefix(img_path, key_y_center, key_x_right):
+    """检查调号字母左侧是否有 # 或 b
+
+    Args:
+        img_path: 图片路径
+        key_y_center: 调号字母的垂直中心位置
+        key_x_right: 调号字母的右侧 x 坐标
+
+    Returns:
+        带升降号的调号，如 #C, bD，或 None
+    """
+    img = Image.open(img_path)
+    width, height = img.size
+
+    # 裁剪调号字母左侧区域（宽度为调号字母宽度的 2 倍）
+    left_width = int((key_x_right) * 0.5) if key_x_right > 0 else int(width * 0.1)
+    if left_width <= 0:
+        left_width = int(width * 0.1)
+
+    # 裁剪左侧区域（高度范围与调号字母相同）
+    half_height = int(height * 0.05)
+    y_top = max(0, int(key_y_center) - half_height)
+    y_bottom = min(height, int(key_y_center) + half_height)
+
+    left_region = img.crop((0, y_top, left_width, y_bottom))
+
+    # 识别左侧内容
+    text = pytesseract.image_to_string(left_region, config='--psm 6')
+    text = text.strip().upper()
+
+    # 检查是否有 # 或 b
+    if '#' in text:
+        return '#'
+    elif 'B' in text:
+        # 可能是 b，需要更精确判断 - 检查是否是降号符号
+        # 降号 b 通常比较小且单独出现
+        if re.search(r'^B$|^B\s', text) or re.search(r'\sB$|\sB\s', text):
+            return 'b'
+        # 如果是 B 调中的 B，不是降号
+        if '调' in text:
+            return None
+
+    return None
+
+
+def check_key_prefix_by_easyocr(texts_with_position, key_x_center, key_y_center):
+    """使用 EasyOCR 的识别结果检查调号左上方是否有升降号
+
+    Args:
+        texts_with_position: EasyOCR 识别出的文字块列表
+        key_x_center: 调号字母的 x 中心坐标
+        key_y_center: 调号字母的 y 中心坐标
+
+    Returns:
+        '#' 或 'b' 或 None
+    """
+    # 查找调号左上方区域的文字块（x 更小，y 更小）
+    search_range_x = key_x_center * 0.5  # 搜索左侧 50% 范围
+    search_range_y = key_y_center * 0.3  # 搜索上方 30% 范围
+
+    for t in texts_with_position:
+        # 在调号左上方
+        if t['x_center'] < key_x_center and t['x_center'] > key_x_center - search_range_x:
+            # 高度在调号上方
+            if t['y_center'] < key_y_center and t['y_center'] > key_y_center - search_range_y:
+                text = t['text'].upper().strip()
+                # 检查是否是升号 #
+                if text == '#':
+                    return '#'
+                # 检查是否是降号：B, b, 6, 0 (考虑 OCR 识别错误)
+                if text in ['B', '6', '0'] or text.startswith('B') or text.startswith('6') or text.startswith('0'):
+                    # 排除像 "B调" 这样的完整词
+                    if '调' not in text:
+                        return 'b'
 
     return None
 
@@ -239,6 +323,17 @@ for img_path in tqdm(image_files, desc="识别进度"):
         # 方法2: Tesseract 识别左上角英文字母调号
         if not key:
             key = extract_key_with_tesseract(img_path, region='corner')
+
+        # 方法2.5: 如果识别到调号，检查左侧是否有升降号
+        if key and key in KEY_LETTERS:
+            # 用 EasyOCR 查找调号字母的位置
+            for t in texts_with_position:
+                if t['text'].upper() == key:
+                    # 检查左侧是否有 # 或 b
+                    prefix = check_key_prefix_by_easyocr(texts_with_position, t['x_center'], t['y_center'])
+                    if prefix:
+                        key = prefix + key
+                    break
 
         # 方法3: 用 Tesseract 识别曲名下方区域的调号
         if not key and title:
