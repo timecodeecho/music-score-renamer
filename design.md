@@ -3,56 +3,66 @@
 ## 系统架构
 
 ```
-输入图片 → EasyOCR区域识别 → 曲名提取 + 调号识别 → 文件重命名 → CSV报告
+输入图片 → EasyOCR区域识别 → 曲名提取 + 调号识别 → CSV报告
                     ↓                    ↓
               文字块位置信息      多种调号识别方案
+
+分步处理模式:
+  1. recognizer.py → 输出 CSV（不重命名）
+  2. renamer.py → 读取 CSV 重命名文件
+```
+
+## 文件结构
+
+```
+music-score-renamer/
+├── utils.py                   # 公共方法模块
+│   ├── KEY_PATTERNS           # 调号正则匹配模式
+│   ├── KEY_LETTERS            # 调号字母列表
+│   ├── TESSERACT_CONFIG       # Tesseract 配置
+│   ├── init_easyocr()         # 初始化 EasyOCR
+│   ├── read_upper_region()    # EasyOCR 识别图片上部
+│   ├── extract_key_multi_method()  # 多种方法提取调号
+│   ├── filter_title()         # 过滤曲名（去空格等）
+│   ├── is_renamed_file()      # 检查文件是否已重命名
+│   └── remove_spaces()        # 移除字符串空格
+├── recognizer.py              # 仅识别，输出 CSV
+├── renamer.py                 # 读取 CSV 重命名文件
+├── recognize_and_rename.py     # 识别+重命名（一步完成）
+└── README.md
 ```
 
 ## 当前架构问题
 
 ### 已识别的问题
 
-1. **重复打开图片** - 当前5个函数各自独立打开图片
-   - `read_upper_region()` - 打开图片用于 EasyOCR 识别
-   - `extract_key_with_tesseract()` - 打开图片裁剪区域
-   - `check_key_prefix_by_tesseract()` - 打开图片检测升降号
-   - `extract_key_from_title_region()` - 打开图片识别曲名下方
-   - **优化建议**：在主循环中统一加载图片，传递给各函数复用
+1. **重复打开图片** - 当前多个函数各自独立打开图片
+   - 已在 `extract_key_multi_method()` 中优化，使用路径字符串而非 Image 对象
 
 2. **字符串常量重复** - `config='--psm 6'` 在多处重复
-   - **已优化**：提取为模块级常量 `TESSERACT_CONFIG`
+   - **已优化**：提取为 `TESSERACT_CONFIG` 常量
 
 3. **调号识别方法字符串** - 散落在代码中的方法名称
    - **已优化**：记录到 CSV 新增列中便于调试
 
-## 可优化改进的地方
-
-### 代码质量优化
-
-| 问题 | 优化方案 | 优先级 |
-|------|----------|--------|
-| 重复打开图片 | 主循环统一加载，传递 Image 对象 | 高 |
-| TOCTOU 竞态条件 | 文件重命名前检查改用 try/except 处理 | 中 |
-| 未使用的常量 | 删除 `check_key_prefix()` 函数 | 低 |
-| 正则模式重复 | 统一使用 `key_patterns` 列表 | 低 |
-
-### 性能优化
-
-| 问题 | 优化方案 | 优先级 |
-|------|----------|--------|
-| 顺序处理图片 | 使用 `concurrent.futures` 并行处理 | 中 |
-| EasyOCR 每图调用 | 可考虑批量处理 | 低 |
-| CSV 结果累积 | 大批量时改为流式写入 | 低 |
-
-### 运行时问题
-
-| 问题 | 原因 | 建议 |
-|------|------|------|
-| 升降号检测不到 | 搜索区域可能不正确 | 考虑扩大搜索范围到整个左上角 30% |
-| 曲名识别错误 | "制谱/编曲"被误识为曲名 | 扩展排除关键词列表 |
-| CSV 显示 #NAME? | Excel 打开方式问题 | 使用文本编辑器或指定编码打开 |
-
 ## 核心流程
+
+### 方式一：分步处理（推荐）
+
+```
+1. recognizer.py
+   获取文件夹图片列表 → EasyOCR 识别 → 调号提取 → 输出 CSV
+
+2. renamer.py
+   读取 CSV → 根据调号和曲名重命名文件 → 汇总报告
+```
+
+### 方式二：一步完成
+
+```
+recognize_and_rename.py
+获取文件夹图片列表 → EasyOCR 识别 → 调号提取 → 重命名文件 → 输出 CSV
+```
 
 ### 1. 文件过滤
 ```
@@ -122,14 +132,15 @@
 ```
 
 ### CSV输出字段
+
 | 字段 | 说明 |
 |------|------|
 | 原文件名 | 原始图片文件名 |
 | 调号 | 识别的调号(如C, #C, bA) |
 | 调号识别方法 | 使用的识别方案 |
 | 升降号检测文本 | Tesseract前方区域识别内容 |
-| 曲名 | 识别的曲名 |
-| 新文件名 | 重命名后的文件名 |
+| 曲名 | 识别的曲名（已去除空格） |
+| 新文件名 | 重命名后的文件名（recognizer.py 无此列） |
 | 状态 | 成功/失败/错误等 |
 
 ## 配置常量
@@ -138,16 +149,25 @@
 KEY_LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
 TESSERACT_CONFIG = '--psm 6'
 KEY_PATTERNS = [...]  # 调号正则匹配模式
+TITLE_EXCLUDE_KEYWORDS = ['制谱', '编曲', '作曲', '记谱', '演奏']
 ```
 
-## 关键函数
+## 关键函数 (utils.py)
 
 | 函数 | 功能 |
 |------|------|
-| read_upper_region() | EasyOCR识别图片上部区域 |
-| extract_key_with_tesseract() | Tesseract多区域调号识别 |
+| init_easyocr() | 初始化 EasyOCR Reader |
+| read_upper_region() | EasyOCR 识别图片上部区域 |
+| extract_key_multi_method() | 多种方法提取调号 |
+| extract_key_from_ocr_text() | 从 OCR 文本提取调号 |
+| extract_key_with_tesseract() | Tesseract 多区域调号识别 |
 | check_key_prefix_by_tesseract() | 检测调号前方升降号 |
 | extract_key_from_title_region() | 曲名下方区域调号识别 |
+| is_key_info() | 判断是否是调号信息 |
+| filter_title() | 过滤曲名（去空格、过滤调号） |
+| is_renamed_file() | 检查文件是否已重命名 |
+| remove_spaces() | 移除字符串空格 |
+| build_new_filename() | 构建新文件名 |
 
 ## 处理顺序图
 
@@ -175,7 +195,7 @@ EasyOCR识别(上部40%)               │
   └─ 方案4: Tesseract上部全区域     │
   │                                 │
   ▼                                 │
-文件重命名                          │
+文件重命名（可选）                  │
   │                                 │
   ├─ 有调号+曲名 → 调号-曲名.ext   │
   ├─ 有曲名无调号 → 曲名.ext       │

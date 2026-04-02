@@ -2,24 +2,31 @@
 
 使用 EasyOCR 识别曲谱图片中的曲名，Tesseract 识别调号，批量重命名文件。
 
+## 项目结构
+
+```
+music-score-renamer/
+├── utils.py                 # 公共方法模块
+├── recognizer.py            # 仅识别（输出CSV，不重命名）
+├── renamer.py               # 读取CSV重命名文件
+├── recognize_and_rename.py  # 识别+重命名（原有功能）
+└── README.md
+```
+
 ## 文件夹配置
 
-**父文件夹路径**：在 `main.py` 中配置
-
-```python
-BASE_PATH = r"D:\谱子\共享曲谱"  # 修改为你的曲谱文件夹路径
-```
+**父文件夹路径**：在脚本开头配置 BASE_PATH 变量
 
 **运行命令**：
 
 ```bash
-python main.py <子文件夹名称>
+python <脚本名> <子文件夹名称>
 ```
 
 例如：父文件夹是 `D:\谱子\共享曲谱`，包含子文件夹 `0`、`1`、`2`
 
-- `python main.py 0` 处理 `D:\谱子\共享曲谱\0` 目录
-- `python main.py 1` 处理 `D:\谱子\共享曲谱\1` 目录
+- `python recognizer.py 0` 处理 `D:\谱子\共享曲谱\0` 目录（识别）
+- `python recognize_and_rename.py 1` 处理 `D:\谱子\共享曲谱\1` 目录（识别+重命名）
 
 ## 功能特点
 
@@ -48,22 +55,41 @@ pip install easyocr pytesseract opencv-python pillow tqdm
 
 ## Tesseract 配置
 
-下载并安装 [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki)，然后在 `main.py` 中配置路径：
+下载并安装 [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki)，然后在脚本开头配置路径：
 
 ```python
 pytesseract.pytesseract.tesseract_cmd = r'你的Tesseract路径\tesseract.exe'
 ```
 ## 使用方法
 
-运行：
+### 方式一：分步处理（推荐）
 
+1. **识别**：生成 CSV 文件（不重命名）
 ```bash
-python main.py <文件夹编号>
+python recognizer.py <文件夹编号>
+```
+例如：`python recognizer.py 0`
+
+2. **校对**：手动编辑 CSV 文件，修正调号和曲名
+
+3. **重命名**：根据 CSV 重命名文件
+```bash
+python renamer.py <文件夹编号>
+```
+例如：`python renamer.py 0`
+
+也支持完整路径：
+```bash
+python renamer.py test3/识别结果.csv
 ```
 
-例如：`python main.py 0` 处理共享曲谱文件夹中的第 0 个子文件夹。 
+### 方式二：一步完成
 
-输出
+```bash
+python recognize_and_rename.py <文件夹编号>
+```
+
+## 输出
 
 - 重命名后的图片文件（格式：`调号-曲名.jpg`）
 - `识别结果.csv` - 识别记录
