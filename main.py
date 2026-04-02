@@ -52,8 +52,12 @@ print(f"输出 CSV: {OUTPUT_CSV}\n")
 
 # 调号匹配正则
 key_patterns = [
-    r'1=(#?[A-Ga-g])',         # 1=C, 1=G, 1=#C, 1=bD
-    r'(#?[A-G])调',            # C调, G调, bB调, #F调
+    r'1=(#?[A-Ga-g])',                   # 1=C, 1=G, 1=#C, 1=bD
+    r'1=(♯?[A-Ga-g])',                   # 1=♯C, 1=♯G (Unicode升号)
+    r'1=(♭?[A-Ga-g])',                   # 1=♭C, 1=♭D (Unicode降号)
+    r'(#?[A-G])调',                      # C调, G调, bB调, #F调
+    r'(♯?[A-G])调',                      # ♯C调, ♯G调 (Unicode升号)
+    r'(♭?[A-G])调',                      # ♭C调, ♭D调 (Unicode降号)
 ]
 
 # 调号字母（单独的单个大写字母可能是调号）
