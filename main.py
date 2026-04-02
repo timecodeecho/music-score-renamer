@@ -193,24 +193,24 @@ def check_key_prefix_by_tesseract(img_path, key_bbox, img_width, img_height):
 
     # 用 Tesseract 识别
     text = pytesseract.image_to_string(prefix_region, config='--psm 6')
-    text = text.strip().upper()
+    text = text.strip()
 
     print(f"  [升降号检测] 区域({left},{top},{right},{bottom}): '{text}'")
 
-    # 检查是否是升号 #
-    if '#' in text:
+    text_upper = text.upper()
+    text_lower = text.lower()
+
+    # 检查升号：#, ♯, 井
+    if '#' in text or '♯' in text or '井' in text:
         return '#'
 
-    # 检查是否是降号：B, 6, 0
-    for check in ['B', '6', '0']:
-        if check in text:
+    # 检查降号：b, B, 6, 0, ♭, ь
+    flat_chars = ['b', 'B', '6', '0', '♭', 'ь']
+    for c in flat_chars:
+        if c in text:
+            # 排除包含"调"的词（如"B调"）
             if '调' not in text:
                 return 'b'
-
-    # 检查小写的 b
-    text_lower = text.lower()
-    if 'b' in text_lower and '调' not in text_lower:
-        return 'b'
 
     return None
 
