@@ -183,10 +183,10 @@ def read_upper_region(img_path, ratio=0.4):
             return True
         return False
 
-    # 按面积排序
-    texts_sorted = sorted(texts_with_position, key=lambda x: x['area'], reverse=True)
+    # 按 y 坐标排序（越靠上越可能是曲名）
+    texts_sorted = sorted(texts_with_position, key=lambda x: x['y_top'])
 
-    # 找到最大的非调号信息文字块
+    # 找到第一个非调号信息文字块作为曲名
     best_text = None
     for t in texts_sorted:
         if not is_key_info(t['text']):
