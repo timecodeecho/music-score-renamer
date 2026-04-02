@@ -53,7 +53,6 @@ pip install easyocr pytesseract opencv-python pillow tqdm
 ```python
 pytesseract.pytesseract.tesseract_cmd = r'你的Tesseract路径\tesseract.exe'
 ```
-
 ## 使用方法
 
 运行：
@@ -62,9 +61,9 @@ pytesseract.pytesseract.tesseract_cmd = r'你的Tesseract路径\tesseract.exe'
 python main.py <文件夹编号>
 ```
 
-例如：`python main.py 0` 处理共享曲谱文件夹中的第 0 个子文件夹。
+例如：`python main.py 0` 处理共享曲谱文件夹中的第 0 个子文件夹。 
 
-## 输出
+输出
 
 - 重命名后的图片文件（格式：`调号-曲名.jpg`）
 - `识别结果.csv` - 识别记录
