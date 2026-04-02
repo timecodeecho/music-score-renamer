@@ -160,35 +160,53 @@ def check_key_prefix(img_path, key_y_center, key_x_right):
     return None
 
 
-def check_key_prefix_by_easyocr(texts_with_position, key_x_center, key_y_center):
-    """使用 EasyOCR 的识别结果检查调号左上方是否有升降号
+def check_key_prefix_by_tesseract(img_path, key_x_center, key_y_center, img_width, img_height):
+    """使用 Tesseract 检查调号左上方是否有升降号
 
     Args:
-        texts_with_position: EasyOCR 识别出的文字块列表
+        img_path: 图片路径
         key_x_center: 调号字母的 x 中心坐标
         key_y_center: 调号字母的 y 中心坐标
+        img_width: 图片宽度
+        img_height: 图片高度
 
     Returns:
         '#' 或 'b' 或 None
     """
-    # 查找调号左上方区域的文字块（x 更小，y 更小）
-    search_range_x = key_x_center * 0.5  # 搜索左侧 50% 范围
-    search_range_y = key_y_center * 0.3  # 搜索上方 30% 范围
+    img = Image.open(img_path)
 
-    for t in texts_with_position:
-        # 在调号左上方
-        if t['x_center'] < key_x_center and t['x_center'] > key_x_center - search_range_x:
-            # 高度在调号上方
-            if t['y_center'] < key_y_center and t['y_center'] > key_y_center - search_range_y:
-                text = t['text'].upper().strip()
-                # 检查是否是升号 #
-                if text == '#':
-                    return '#'
-                # 检查是否是降号：B, b, 6, 0 (考虑 OCR 识别错误)
-                if text in ['B', '6', '0'] or text.startswith('B') or text.startswith('6') or text.startswith('0'):
-                    # 排除像 "B调" 这样的完整词
-                    if '调' not in text:
-                        return 'b'
+    # 裁剪调号左上方区域
+    # 左侧范围：从 0 到调号位置
+    left_end = int(key_x_center)
+    # 上方范围：从 0 到调号位置
+    top_end = int(key_y_center)
+
+    if left_end <= 0 or top_end <= 0:
+        return None
+
+    # 裁剪左上方区域
+    left_top_region = img.crop((0, 0, left_end, top_end))
+
+    # 用 Tesseract 识别
+    text = pytesseract.image_to_string(left_top_region, config='--psm 6')
+    text = text.strip().upper()
+
+    # 检查是否是升号 #
+    if '#' in text:
+        return '#'
+
+    # 检查是否是降号：B, 6, 0, b
+    if 'B' in text or '6' in text or '0' in text:
+        # 排除像 "B调" 这样的完整词
+        if '调' not in text:
+            return 'b'
+
+    # 检查小写的 b（Tesseract 可能识别为小写）
+    text_lower = text.lower()
+    if 'b' in text_lower and '调' not in text_lower:
+        # 确认是单独的 b 不是单词的一部分
+        if text_lower == 'b' or text_lower.strip().startswith('b'):
+            return 'b'
 
     return None
 
@@ -329,8 +347,8 @@ for img_path in tqdm(image_files, desc="识别进度"):
             # 用 EasyOCR 查找调号字母的位置
             for t in texts_with_position:
                 if t['text'].upper() == key:
-                    # 检查左侧是否有 # 或 b
-                    prefix = check_key_prefix_by_easyocr(texts_with_position, t['x_center'], t['y_center'])
+                    # 用 Tesseract 检查左上方是否有 # 或 b
+                    prefix = check_key_prefix_by_tesseract(img_path, t['x_center'], t['y_center'], img_width, img_height)
                     if prefix:
                         key = prefix + key
                     break
