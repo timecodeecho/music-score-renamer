@@ -10,6 +10,7 @@ import csv
 import glob
 import easyocr
 import pytesseract
+import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
@@ -142,9 +143,6 @@ def extract_key_from_title_region(img_path, title_y_center):
 
 def read_upper_region(img_path, ratio=0.4):
     """只识别图片上部指定比例的区域，返回所有文字块及其位置"""
-    from PIL import Image
-    import numpy as np
-
     img = Image.open(img_path)
     width, height = img.size
     # 裁剪上部区域
@@ -224,7 +222,7 @@ for img_path in tqdm(image_files, desc="识别进度"):
         # 找出最大的文字块作为曲名
         title = largest_text
         # 过滤掉太短的或像调号的
-        if title and (len(title) < 2 or title in ['C', 'D', 'E', 'F', 'G', 'A', 'B']):
+        if title and (len(title) < 2 or title in KEY_LETTERS):
             title = None
 
         # 提取调号
